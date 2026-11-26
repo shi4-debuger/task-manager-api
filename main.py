@@ -4,6 +4,7 @@ from typing import List, Optional
 import jwt
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -137,6 +138,9 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
+@app.get("/")
+def serve_frontend():
+    return FileResponse("index.html")
 
 # --- Auth Endpoints ---
 @app.post("/signup", response_model=UserResponse, status_code=201)
