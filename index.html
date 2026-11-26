@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Task Manager App</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: #f3f4f6; display: flex; justify-content: center; padding: 40px 16px; margin: 0; }
+    .card { background: white; width: 100%; max-width: 480px; padding: 28px; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+    h1, h2 { margin-top: 0; color: #111827; }
+    input[type="text"], input[type="password"] {
+      width: 100%; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px;
+    }
+    button {
+      padding: 10px 16px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+    }
+    .btn-primary { background: #2563eb; color: white; width: 100%; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-secondary { background: #e5e7eb; color: #374151; width: 100%; margin-top: 8px; }
+    .btn-edit { background: #f59e0b; color: white; padding: 6px 10px; font-size: 13px; }
+    .btn-edit:hover { background: #d97706; }
+    .btn-danger { background: #ef4444; color: white; padding: 6px 10px; font-size: 13px; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-logout { background: #6b7280; color: white; padding: 6px 12px; font-size: 13px; }
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .task-item {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 10px;
+    }
+    .task-info { display: flex; align-items: center; gap: 10px; }
+    .task-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .completed { text-decoration: line-through; color: #9ca3af; }
+    .error { color: #dc2626; font-size: 14px; margin-bottom: 12px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="auth-section">
+      <h1 id="auth-title">Log In</h1>
+      <div id="auth-error" class="error"></div>
+      <input type="text" id="username" placeholder="Username" />
+      <input type="password" id="password" placeholder="Password" />
+      <button class="btn-primary" id="auth-submit-btn" onclick="handleAuth()">Log In</button>
+      <button class="btn-secondary" id="auth-toggle-btn" onclick="toggleAuthMode()">
+        Need an account? Sign Up
+      </button>
+    </div>
+
+    <div id="app-section" class="hidden">
+      <div class="header-row">
+        <h2>My Tasks</h2>
+        <button class="btn-logout" onclick="logout()">Log Out</button>
+      </div>
+
+      <input type="text" id="task-title" placeholder="Task title (e.g., Finish Python project)" />
+      <input type="text" id="task-desc" placeholder="Description (optional)" />
+      <button class="btn-primary" onclick="addTask()">Add Task</button>
+
+      <div id="task-list" style="margin-top: 24px;"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "http://127.0.0.1:8000";
+    let isSignup = false;
+
+    if (localStorage.getItem("token")) {
+      showApp();
+    }
+
+    function toggleAuthMode() {
+      isSignup = !isSignup;
+      document.getElementById("auth-title").innerText = isSignup ? "Create Account" : "Log In";
+      document.getElementById("auth-submit-btn").innerText = isSignup ? "Sign Up" : "Log In";
+      document.getElementById("auth-toggle-btn").innerText = isSignup
+        ? "Already have an account? Log In"
+        : "Need an account? Sign Up";
+      document.getElementById("auth-error").innerText = "";
+    }
+
+    async function handleAuth() {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
+      const errorDiv = document.getElementById("auth-error");
+      errorDiv.innerText = "";
+
+      if (!username || !password) {
+        errorDiv.innerText = "Please enter both username and password.";
+        return;
+      }
+
+      try {
+        if (isSignup) {
+          const signupRes = await fetch(API_URL + "/signup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+          });
+          if (!signupRes.ok) {
+            const err = await signupRes.json();
+            throw new Error(err.detail || "Signup failed");
+          }
+        }
+
+        const formData = new URLSearchParams();
+        formData.append("username", username);
+        formData.append("password", password);
+
+        const loginRes = await fetch(API_URL + "/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formData
+        });
+
+        if (!loginRes.ok) {
+          throw new Error("Invalid username or password");
+        }
+
+        const data = await loginRes.json();
+        localStorage.setItem("token", data.access_token);
+        showApp();
+      } catch (err) {
+        errorDiv.innerText = err.message;
+      }
+    }
+
+    function showApp() {
+      document.getElementById("auth-section").classList.add("hidden");
+      document.getElementById("app-section").classList.remove("hidden");
+      loadTasks();
+    }
+
+    function logout() {
+      localStorage.removeItem("token");
+      document.getElementById("app-section").classList.add("hidden");
+      document.getElementById("auth-section").classList.remove("hidden");
+    }
+
+    function authHeaders() {
+      return {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + localStorage.getItem("token")
+      };
+    }
+
+    async function loadTasks() {
+      const res = await fetch(API_URL + "/tasks/", { headers: authHeaders() });
+      if (res.status === 401) return logout();
+      const tasks = await res.json();
+
+      const list = document.getElementById("task-list");
+      list.innerHTML = tasks.length === 0 ? "<p style='color:#6b7280;'>No tasks yet. Add one above!</p>" : "";
+
+      tasks.forEach(task => {
+        const div = document.createElement("div");
+        div.className = "task-item";
+
+        const infoDiv = document.createElement("div");
+        infoDiv.className = "task-info";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = task.completed;
+        checkbox.onchange = () => updateTask(task.id, task.title, task.description || "", checkbox.checked);
+
+        const textDiv = document.createElement("div");
+        if (task.completed) textDiv.className = "completed";
+
+        const titleEl = document.createElement("strong");
+        titleEl.innerText = task.title;
+        textDiv.appendChild(titleEl);
+
+        if (task.description) {
+          const descEl = document.createElement("div");
+          descEl.style.fontSize = "13px";
+          descEl.style.color = "#6b7280";
+          descEl.innerText = task.description;
+          textDiv.appendChild(descEl);
+        }
+
+        infoDiv.appendChild(checkbox);
+        infoDiv.appendChild(textDiv);
+
+        const actionsDiv = document.createElement("div");
+        actionsDiv.className = "task-actions";
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "btn-edit";
+        editBtn.innerText = "Edit";
+        editBtn.onclick = () => editTask(task);
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn-danger";
+        delBtn.innerText = "Delete";
+        delBtn.onclick = () => deleteTask(task.id);
+
+        actionsDiv.appendChild(editBtn);
+        actionsDiv.appendChild(delBtn);
+
+        div.appendChild(infoDiv);
+        div.appendChild(actionsDiv);
+        list.appendChild(div);
+      });
+    }
+
+    async function addTask() {
+      const titleInput = document.getElementById("task-title");
+      const descInput = document.getElementById("task-desc");
+      const title = titleInput.value.trim();
+      const description = descInput.value.trim();
+
+      if (!title) return alert("Please enter a task title");
+
+      await fetch(API_URL + "/tasks/", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ title, description, completed: false })
+      });
+
+      titleInput.value = "";
+      descInput.value = "";
+      loadTasks();
+    }
+
+    async function editTask(task) {
+      const newTitle = prompt("Edit task title:", task.title);
+      if (newTitle === null) return; // User clicked Cancel
+      if (!newTitle.trim()) return alert("Task title cannot be empty!");
+
+      const newDesc = prompt("Edit description:", task.description || "");
+      if (newDesc === null) return; // User clicked Cancel
+
+      await updateTask(task.id, newTitle.trim(), newDesc.trim(), task.completed);
+    }
+
+    async function updateTask(id, title, description, completed) {
+      await fetch(API_URL + "/tasks/" + id, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ title, description, completed })
+      });
+      loadTasks();
+    }
+
+    async function deleteTask(id) {
+      await fetch(API_URL + "/tasks/" + id, {
+        method: "DELETE",
+        headers: authHeaders()
+      });
+      loadTasks();
+    }
+  </script>
+</body>
+</html>
